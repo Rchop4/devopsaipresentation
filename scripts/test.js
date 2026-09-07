@@ -35,16 +35,10 @@ async function integrationTest() {
 
 async function main() {
   console.log("Test suite started...");
-  const totalShards = Number(process.env.TOTAL_SHARDS || 1);
-  const shard = Number(process.env.SHARD || 1);
 
   for (let i = 1; i <= 6; i += 1) {
-    const shouldRun = ((i - 1) % totalShards) === (shard - 1);
-    if (!shouldRun) {
-      continue;
-    }
     await wait(650);
-    console.log(`Test shard ${i}/6 complete (${shard}/${totalShards})`);
+    console.log(`Test shard ${i}/6 complete`);
   }
 
   await integrationTest();
