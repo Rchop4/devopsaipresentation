@@ -1,4 +1,5 @@
 name: ci-lab
+  # whitespace-trigger
 
 on:
   workflow_dispatch:
@@ -48,3 +49,112 @@ jobs:
       # Tests run in a single job with no sharding, so duration improvement is possible.
       - name: Run tests
         run: npm test
+
+  deploy_preview_guarded:
+    # Keep preview-style deployment checks off direct pushes to main.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    needs: [build, test, risk_assessment]
+    timeout-minutes: 5
+    # Read-only access to PR review state, just enough for the `gh pr view` check below.
+    permissions:
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v5
+      - name: Block no-go risk levels
+        if: needs.risk_assessment.outputs.decision == 'no-go'
+        run: |
+          echo "Risk score ${{ needs.risk_assessment.outputs.risk_score }} is no-go."
+          echo "Apply mitigations, then rerun validation."
+          exit 1
+      - name: Require code owner (senior) approval for elevated risk
+        if: needs.risk_assessment.outputs.decision == 'senior-review'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # This check is self-contained: it does not rely on branch protection's
+          # "Require review from Code Owners" setting (which, if enabled, would apply
+          # to every PR regardless of risk band). Instead it reads .github/CODEOWNERS
+          # directly and checks whether any of those accounts left an APPROVED review
+          # on this specific PR, so normal-review PRs remain unaffected.
+          owners=$(grep -E '^\*\s' .github/CODEOWNERS | awk '{ $1=""; print }' | tr -d '@' | xargs -n1)
+          echo "Code owners: $owners"
+
+          approved_by=$(gh pr view "${{ github.event.pull_request.number }}" \
+            --repo "${{ github.repository }}" \
+            --json reviews \
+            -q '[.reviews[] | select(.state=="APPROVED") | .author.login] | unique | .[]')
+          echo "Approved by: $approved_by"
+
+          match=""
+          for owner in $owners; do
+            if grep -qx "$owner" <<< "$approved_by"; then
+              match="$owner"
+              break
+            fi
+          done
+
+          if [[ -z "$match" ]]; then
+            echo "Missing required senior (code owner) approval from: $owners"
+            exit 1
+          else
+            echo "Approved by code owner: $match"
+          fi
+      - name: Approval and rollback notes
+        run: |
+          echo "Guardrail check passed after build+test."
+          echo "Risk score: ${{ needs.risk_assessment.outputs.risk_score }}"
+          echo "Decision: ${{ needs.risk_assessment.outputs.decision }}"
+          echo "Rollback: revert the CI optimisation commit and rerun pipeline."
+ 
+  risk_assessment:
+    # Risk scoring runs only for pull requests because it relies on PR metadata.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    needs: [build, test]
+    outputs:
+      risk_score: ${{ steps.score.outputs.risk_score }}
+      decision: ${{ steps.score.outputs.decision }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: changed_paths
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            workflow:
+              - '.github/workflows/**'
+            app_logic:
+              - 'scripts/**'
+              - 'package*.json'
+      - id: score
+        name: Calculate deployment risk score
+        run: |
+          score=4
+
+          if [[ "${{ steps.changed_paths.outputs.workflow }}" == "true" ]]; then
+            score=$((score + 7))
+          fi
+
+          if [[ "${{ steps.changed_paths.outputs.app_logic }}" == "true" ]]; then
+            score=$((score + 5))
+          fi
+
+          if [[ "${{ github.event.pull_request.changed_files }}" -gt 20 ]]; then
+            score=$((score + 4))
+          fi
+
+          if [[ "$score" -ge 15 ]]; then
+            decision="no-go"
+          elif [[ "$score" -ge 9 ]]; then
+            decision="senior-review"
+          else
+            decision="normal-review"
+          fi
+
+          echo "risk_score=$score" >> "$GITHUB_OUTPUT"
+          echo "decision=$decision" >> "$GITHUB_OUTPUT"
+      - name: Publish risk summary
+        run: |
+          echo "Risk score: ${{ steps.score.outputs.risk_score }}"
+          echo "Decision: ${{ steps.score.outputs.decision }}"
+ 
