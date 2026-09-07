@@ -50,44 +50,44 @@ jobs:
       - name: Run tests
         run: npm test
 
-risk_assessment:
-  if: github.event_name == 'pull_request'
-  needs: [build, test]
-  outputs:
-    risk_score: ${{ steps.score.outputs.risk_score }}
-    decision: ${{ steps.score.outputs.decision }}
-  steps:
-    - uses: actions/checkout@v5
-    - id: changed_paths
-      uses: dorny/paths-filter@v3
-      with:
-        filters: |
-          workflow:
-            - '.github/workflows/**'
-          app_logic:
-            - 'scripts/**'
-            - 'package*.json'
-    - id: score
-      run: |
-        score=4
-        if [[ "${{ steps.changed_paths.outputs.workflow }}" == "true" ]]; then
-          score=$((score + 7))
-        fi
-        if [[ "${{ steps.changed_paths.outputs.app_logic }}" == "true" ]]; then
-          score=$((score + 5))
-        fi
-        if [[ "${{ github.event.pull_request.changed_files }}" -gt 20 ]]; then
-          score=$((score + 4))
-        fi
-        if [[ "$score" -ge 15 ]]; then
-          decision="no-go"
-        elif [[ "$score" -ge 9 ]]; then
-          decision="senior-review"
-        else
-          decision="normal-review"
-        fi
-        echo "risk_score=$score" >> "$GITHUB_OUTPUT"
-        echo "decision=$decision" >> "$GITHUB_OUTPUT"
+  risk_assessment:
+    if: github.event_name == 'pull_request'
+    needs: [build, test]
+    outputs:
+      risk_score: ${{ steps.score.outputs.risk_score }}
+      decision: ${{ steps.score.outputs.decision }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: changed_paths
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            workflow:
+              - '.github/workflows/**'
+            app_logic:
+              - 'scripts/**'
+              - 'package*.json'
+      - id: score
+        run: |
+          score=4
+          if [[ "${{ steps.changed_paths.outputs.workflow }}" == "true" ]]; then
+            score=$((score + 7))
+          fi
+          if [[ "${{ steps.changed_paths.outputs.app_logic }}" == "true" ]]; then
+            score=$((score + 5))
+          fi
+          if [[ "${{ github.event.pull_request.changed_files }}" -gt 20 ]]; then
+            score=$((score + 4))
+          fi
+          if [[ "$score" -ge 15 ]]; then
+            decision="no-go"
+          elif [[ "$score" -ge 9 ]]; then
+            decision="senior-review"
+          else
+            decision="normal-review"
+          fi
+          echo "risk_score=$score" >> "$GITHUB_OUTPUT"
+          echo "decision=$decision" >> "$GITHUB_OUTPUT"
   deploy_preview_guarded:
     if: github.event_name == 'pull_request'
     needs: [build, test, risk_assessment]
