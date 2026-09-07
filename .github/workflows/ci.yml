@@ -32,10 +32,14 @@ jobs:
         run: npm run lint
       - name: Build
         run: npm run build
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-output
+          path: .
 
   test:
     runs-on: ubuntu-latest
-    # Test depends on build, but the workflow does not reuse a build artifact.
     needs: build
     steps:
       - uses: actions/checkout@v5
@@ -45,6 +49,10 @@ jobs:
           cache: npm
       - name: Install dependencies
         run: npm ci
-      # Tests run in a single job with no sharding, so duration improvement is possible.
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: build-output
+          path: .
       - name: Run tests
         run: npm test
