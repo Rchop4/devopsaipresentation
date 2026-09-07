@@ -88,42 +88,42 @@ risk_assessment:
         fi
         echo "risk_score=$score" >> "$GITHUB_OUTPUT"
         echo "decision=$decision" >> "$GITHUB_OUTPUT"
-deploy_preview_guarded:
-  if: github.event_name == 'pull_request'
-  needs: [build, test, risk_assessment]
-  timeout-minutes: 5
-  permissions:
-    pull-requests: read
-  environment:
-    name: workshop-preview
-  steps:
-    - name: Block no-go risk levels
-      if: needs.risk_assessment.outputs.decision == 'no-go'
-      run: |
-        echo "Risk score ${{ needs.risk_assessment.outputs.risk_score }} is no-go."
-        echo "Apply mitigations, then rerun validation."
-        exit 1
-    - name: Require code owner (senior) approval for elevated risk
-      if: needs.risk_assessment.outputs.decision == 'senior-review'
-      env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      run: |
-        decision=$(gh pr view "${{ github.event.pull_request.number }}" \
-          --repo "${{ github.repository }}" \
-          --json reviewDecision -q .reviewDecision)
-        echo "Review decision: $decision"
-        if [[ "$decision" != "APPROVED" ]]; then
-          echo "Missing required senior (code owner) approval"
+  deploy_preview_guarded:
+    if: github.event_name == 'pull_request'
+    needs: [build, test, risk_assessment]
+    timeout-minutes: 5
+    permissions:
+      pull-requests: read
+    environment:
+      name: workshop-preview
+    steps:
+      - name: Block no-go risk levels
+        if: needs.risk_assessment.outputs.decision == 'no-go'
+        run: |
+          echo "Risk score ${{ needs.risk_assessment.outputs.risk_score }} is no-go."
+          echo "Apply mitigations, then rerun validation."
           exit 1
-        fi
-    - name: Approval and rollback notes
-      run: |
-        echo "Guardrail check passed after build+test."
-        echo "Risk score: ${{ needs.risk_assessment.outputs.risk_score }}"
-        echo "Decision: ${{ needs.risk_assessment.outputs.decision }}"
-        head_sha="${{ github.event.pull_request.head.sha }}"
-        pr_number="${{ github.event.pull_request.number }}"
-        echo "Rollback: git revert $head_sha"
-        echo "(If PR #$pr_number is squash-merged, that SHA won't exist on main — instead run:"
-        echo " gh pr view $pr_number --json mergeCommit -q .mergeCommit.oid"
-        echo " then git revert <that SHA>.)"
+      - name: Require code owner (senior) approval for elevated risk
+        if: needs.risk_assessment.outputs.decision == 'senior-review'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          decision=$(gh pr view "${{ github.event.pull_request.number }}" \
+            --repo "${{ github.repository }}" \
+            --json reviewDecision -q .reviewDecision)
+          echo "Review decision: $decision"
+          if [[ "$decision" != "APPROVED" ]]; then
+            echo "Missing required senior (code owner) approval"
+            exit 1
+          fi
+      - name: Approval and rollback notes
+        run: |
+          echo "Guardrail check passed after build+test."
+          echo "Risk score: ${{ needs.risk_assessment.outputs.risk_score }}"
+          echo "Decision: ${{ needs.risk_assessment.outputs.decision }}"
+          head_sha="${{ github.event.pull_request.head.sha }}"
+          pr_number="${{ github.event.pull_request.number }}"
+          echo "Rollback: git revert $head_sha"
+          echo "(If PR #$pr_number is squash-merged, that SHA won't exist on main — instead run:"
+          echo " gh pr view $pr_number --json mergeCommit -q .mergeCommit.oid"
+          echo " then git revert <that SHA>.)"
